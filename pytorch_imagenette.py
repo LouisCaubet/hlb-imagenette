@@ -17,13 +17,29 @@ IMAGENETTE_CLASSES = {
     'parachute': 'n03888257'
 }
 
+CLASSES_TO_IDX = {
+    'tench': 0,
+    'English springer': 1,
+    'cassette player': 2,
+    'chain saw': 3,
+    'church': 4,
+    'French horn': 5,
+    'garbage truck': 6,
+    'gas pump': 7,
+    'golf ball': 8,
+    'parachute': 9
+}
+
 
 class Imagenette(Dataset):
 
-    def __init__(self, path: str, train: bool, transform=transforms.ToTensor()):
+    def __init__(self, path: str, train: bool):
         self.path = path
         self.train = train
-        self.transform = transform
+        self.transform = transforms.Compose([
+            transforms.Resize((64, 64)),
+            transforms.ToTensor(),
+        ])
 
         if train:
             self.path += '/train'
@@ -34,26 +50,28 @@ class Imagenette(Dataset):
         self.labels = []
 
         for label, folder in IMAGENETTE_CLASSES.items():
+            label_idx = CLASSES_TO_IDX[label]
             for image in os.listdir(f'{self.path}/{folder}'):
                 self.images.append(f'{self.path}/{folder}/{image}')
-                self.labels.append(label)
+                self.labels.append(label_idx)
 
     def __len__(self):
         return len(self.images)
 
     def __getitem__(self, index):
         # Load image with PIL
-        image = Image.open(self.images[index])
+        image = Image.open(self.images[index]).convert('RGB')
         tensor = self.transform(image)
+        image.close()
         return tensor, self.labels[index]
 
 
-# Tests
+dataset_train = Imagenette('imagenette2', train=True)
+dataset_val = Imagenette('imagenette2', train=False)
+
 if __name__ == '__main__':
-    dataset_train = Imagenette('imagenette2', train=True)
     print(len(dataset_train))
     print(dataset_train[0][0].shape, dataset_train[0][1])
 
-    dataset_val = Imagenette('imagenette2', train=False)
     print(len(dataset_val))
     print(dataset_val[0][0].shape, dataset_val[0][1])

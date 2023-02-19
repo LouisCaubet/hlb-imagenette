@@ -70,7 +70,7 @@ hyp = {
             'decay_base': .98,
             'every_n_steps': 5,
         },
-        'train_epochs': 10,
+        'train_epochs': 25,
         'device': 'cuda',
         'data_location': 'data.pt',
     }
@@ -82,46 +82,40 @@ hyp = {
 
 if not os.path.exists(hyp['misc']['data_location']):
 
-        transform = transforms.Compose([
-            transforms.ToTensor()])
+    # use the dataloader to get a single batch of all of the dataset items at once.
+    train_dataset_gpu_loader = torch.utils.data.DataLoader(dataset_train, batch_size=len(dataset_train), drop_last=True,
+                                                shuffle=True, num_workers=2, persistent_workers=False)
+    eval_dataset_gpu_loader = torch.utils.data.DataLoader(dataset_val, batch_size=len(dataset_val), drop_last=True,
+                                                shuffle=False, num_workers=1, persistent_workers=False)
 
-        cifar10      = torchvision.datasets.CIFAR10('cifar10/', download=True,  train=True,  transform=transform)
-        cifar10_eval = torchvision.datasets.CIFAR10('cifar10/', download=False, train=False, transform=transform)
+    train_dataset_gpu = {}
+    eval_dataset_gpu = {}
 
-        # use the dataloader to get a single batch of all of the dataset items at once.
-        train_dataset_gpu_loader = torch.utils.data.DataLoader(cifar10, batch_size=len(cifar10), drop_last=True,
-                                                  shuffle=True, num_workers=2, persistent_workers=False)
-        eval_dataset_gpu_loader = torch.utils.data.DataLoader(cifar10_eval, batch_size=len(cifar10_eval), drop_last=True,
-                                                  shuffle=False, num_workers=1, persistent_workers=False)
+    train_dataset_gpu['images'], train_dataset_gpu['targets'] = [item.to(device=hyp['misc']['device'], non_blocking=True) for item in next(iter(train_dataset_gpu_loader))]
+    eval_dataset_gpu['images'],  eval_dataset_gpu['targets']  = [item.to(device=hyp['misc']['device'], non_blocking=True) for item in next(iter(eval_dataset_gpu_loader)) ]
 
-        train_dataset_gpu = {}
-        eval_dataset_gpu = {}
+    cifar10_std, cifar10_mean = torch.std_mean(train_dataset_gpu['images'], dim=(0, 2, 3)) # dynamically calculate the std and mean from the data. this shortens the code and should help us adapt to new datasets!
 
-        train_dataset_gpu['images'], train_dataset_gpu['targets'] = [item.to(device=hyp['misc']['device'], non_blocking=True) for item in next(iter(train_dataset_gpu_loader))]
-        eval_dataset_gpu['images'],  eval_dataset_gpu['targets']  = [item.to(device=hyp['misc']['device'], non_blocking=True) for item in next(iter(eval_dataset_gpu_loader)) ]
+    def batch_normalize_images(input_images, mean, std):
+        return (input_images - mean.view(1, -1, 1, 1)) / std.view(1, -1, 1, 1)
 
-        cifar10_std, cifar10_mean = torch.std_mean(train_dataset_gpu['images'], dim=(0, 2, 3)) # dynamically calculate the std and mean from the data. this shortens the code and should help us adapt to new datasets!
+    # preload with our mean and std
+    batch_normalize_images = partial(batch_normalize_images, mean=cifar10_mean, std=cifar10_std)
 
-        def batch_normalize_images(input_images, mean, std):
-            return (input_images - mean.view(1, -1, 1, 1)) / std.view(1, -1, 1, 1)
+    ## Batch normalize datasets, now. Wowie. We did it! We should take a break and make some tea now.
+    train_dataset_gpu['images'] = batch_normalize_images(train_dataset_gpu['images'])
+    eval_dataset_gpu['images']  = batch_normalize_images(eval_dataset_gpu['images'])
 
-        # preload with our mean and std
-        batch_normalize_images = partial(batch_normalize_images, mean=cifar10_mean, std=cifar10_std)
+    data = {
+        'train': train_dataset_gpu,
+        'eval': eval_dataset_gpu
+    }
 
-        ## Batch normalize datasets, now. Wowie. We did it! We should take a break and make some tea now.
-        train_dataset_gpu['images'] = batch_normalize_images(train_dataset_gpu['images'])
-        eval_dataset_gpu['images']  = batch_normalize_images(eval_dataset_gpu['images'])
+    ## Convert dataset to FP16 now for the rest of the process....
+    data['train']['images'] = data['train']['images'].half()
+    data['eval']['images']  = data['eval']['images'].half()
 
-        data = {
-            'train': train_dataset_gpu,
-            'eval': eval_dataset_gpu
-        }
-
-        ## Convert dataset to FP16 now for the rest of the process....
-        data['train']['images'] = data['train']['images'].half()
-        data['eval']['images']  = data['eval']['images'].half()
-
-        torch.save(data, hyp['misc']['data_location'])
+    torch.save(data, hyp['misc']['data_location'])
 
 else:
     ## This is effectively instantaneous, and takes us practically straight to where the dataloader-loaded dataset would be. :)
@@ -581,7 +575,7 @@ def main():
           ####################
           net.eval()
 
-          eval_batchsize = 1000
+          eval_batchsize = 785
           assert data['eval']['images'].shape[0] % eval_batchsize == 0, "Error: The eval batchsize must evenly divide the eval dataset (for now, we don't have drop_remainder implemented yet)."
           loss_list_val, acc_list, acc_list_ema = [], [], []
           
@@ -618,6 +612,7 @@ def main():
 
 if __name__ == "__main__":
     acc_list = []
-    for run_num in range(25):
+    for run_num in range(1):
         acc_list.append(torch.tensor(main()))
     print("Mean and variance:", (torch.mean(torch.stack(acc_list)).item(), torch.var(torch.stack(acc_list)).item()))
+    
