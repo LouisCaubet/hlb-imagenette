@@ -3,6 +3,14 @@ import os
 from PIL import Image
 import numpy as np
 from torchvision.transforms import transforms
+import os
+import requests
+import tarfile
+import shutil
+
+
+
+
 
 IMAGENETTE_CLASSES = {
     'tench': 'n01440764',
@@ -70,6 +78,23 @@ dataset_train = Imagenette('imagenette2', train=True)
 dataset_val = Imagenette('imagenette2', train=False)
 
 if __name__ == '__main__':
+
+    if not (os.path.exists("imagenette2")):
+        url = "https://s3.amazonaws.com/fast-ai-imageclas/imagenette2-160.tgz"
+        target_path = 'imagenette2.tar.gz'
+
+        response = requests.get(url, stream=True)
+        if response.status_code == 200:
+            with open(target_path, 'wb') as f:
+                f.write(response.raw.read())
+
+        shutil.rmtree('imagenette2-160', ignore_errors=True)
+        tar = tarfile.open(target_path, "r:gz")
+        tar.extractall()
+        tar.close()
+
+        os.rename("imagenette2-160","imagenette2")
+
     print(len(dataset_train))
     print(dataset_train[0][0].shape, dataset_train[0][1])
 
